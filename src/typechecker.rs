@@ -11,7 +11,16 @@ pub fn typecheck(program: Program) -> Result<(), (String, proc_macro2::Span)> {
             ProgramItem::Predicate(predicate) => { predicates.insert(predicate.name.to_string(), predicate); },
             ProgramItem::Rule(Rule { head, body }) => {
                 let predicate_name = head.predicate().to_string();
-                if !predicates.contains_key(&predicate_name) {
+                if let Some(ref predicate) = predicates.get(&predicate_name) {
+                    match head {
+                        Atom::Positional { args, .. } => {
+                            if args.len() != predicate.parameters.len() {
+                                Err((format!("predicate {} expects {} parameters, {} found", predicate_name, predicate.parameters.len(), args.len()), head.predicate().span()))?;
+                            }
+                        },
+                        Atom::Named { .. } => { Err(("a predicate name must not use named bindings".to_string(), head.predicate().span()))?; },
+                    }
+                } else {
                     Err((format!("predicate {} is not declared", predicate_name), head.predicate().span()))?;
                 }
             },
