@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::datapond::{ArgDecl, Atom, Literal, Rule, Program, Predicate, PredicateKind};
+use crate::datapond::{ArgDecl, Atom, Literal, Rule, Program, Predicate, PredicateKind, ProgramItem};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated;
 use syn::{Token, parenthesized, punctuated::Punctuated};
@@ -98,7 +98,7 @@ impl Parse for Rule {
                 Some((proc_macro2::TokenTree::Punct(punct), next)) if punct.as_char() == '-' => Ok(((), next)),
                 _ => Err(cursor.error(":- expected"))
             }
-        });
+        })?;
         let body: Punctuated<Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
         input.parse::<Token![.]>()?;
         Ok(Rule { head, body: body.into_pairs().map(|pair| pair.into_value()).collect() })
@@ -125,23 +125,19 @@ impl Parse for Literal {
 impl Parse for Program {
 
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut predicates = Vec::new();
-        let mut rules = Vec::new();
+        let mut items = Vec::new();
         while !input.is_empty() {
             let lookahead = input.lookahead1();
             if lookahead.peek(kw::relation) || lookahead.peek(kw::irelation) {
                 let predicate: Predicate = input.parse()?;
-                predicates.push(predicate);
+                items.push(ProgramItem::Predicate(predicate));
             } else {
                 let rule: Rule = input.parse()?;
                 // eprintln!("parse {:?}", rule);
-                rules.push(rule);
+                items.push(ProgramItem::Rule(rule));
             }
         }
-        Ok(Program {
-            predicates: predicates,
-            rules: rules,
-        })
+        Ok(Program { items })
     }
 }
 
@@ -194,9 +190,9 @@ mod tests {
             errors(L, P)         :- invalidates(L, P), borrow_live_at(L, P)."#;
 
         let program = parse(text);
-        let serialized = program.rules
+        let serialized = program.items
             .into_iter()
-            .map(|rule| rule.to_string())
+            .map(|item| item.to_string())
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -247,9 +243,9 @@ errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
               borrow_live_at(L, P)."#;
 
         let program = clean_program(text.to_string());
-        let rules = parse(&program).rules;
+        let items = parse(&program).items;
 
-        let serialized = rules
+        let serialized = items
             .into_iter()
             .map(|rule| rule.to_string())
             .collect::<Vec<_>>()

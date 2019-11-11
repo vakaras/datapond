@@ -40,12 +40,22 @@ pub enum Atom {
     Named { predicate: Ident, args: Vec<(Ident, Ident)> },
 }
 
+impl Atom {
+    pub fn predicate(&self) -> &Ident {
+        match self {
+            Atom::Positional { predicate, .. } => predicate,
+            Atom::Named { predicate, .. } => predicate,
+        }
+    }
+}
+
 /// A richer type of relation/atom, which can be negated, and used as premises/hypotheses in rules.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Literal {
     pub atom: Atom,
     pub is_negated: bool,
 }
+
 
 /// A specific type of Horn clause relating the premises/hypotheses/antecedents/conditions in its body
 /// to the conclusion/consequent in its head.
@@ -55,9 +65,13 @@ pub struct Rule {
     pub body: Vec<Literal>,
 }
 
+pub enum ProgramItem {
+    Predicate(Predicate),
+    Rule(Rule),
+}
+
 pub struct Program {
-    pub predicates: Vec<Predicate>,
-    pub rules: Vec<Rule>,
+    pub items: Vec<ProgramItem>,
 }
 
 impl fmt::Display for Atom {
@@ -103,6 +117,12 @@ impl fmt::Display for Literal {
     }
 }
 
+impl fmt::Display for Predicate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unimplemented!();
+    }
+}
+
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} :- ", self.head)?;
@@ -113,5 +133,14 @@ impl fmt::Display for Rule {
             }
         }
         write!(f, ".")
+    }
+}
+
+impl fmt::Display for ProgramItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProgramItem::Predicate(this) => this.fmt(f),
+            ProgramItem::Rule(this) => this.fmt(f),
+        }
     }
 }
