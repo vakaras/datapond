@@ -1,33 +1,35 @@
 use crate::parser;
 use crate::Literal;
 use crate::PredicateKind;
+use crate::ArgDecl;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::{self, Write};
 
+/*
 /// The representation of what a datalog rule does in datafrog terms
-enum Operation<'a> {
+enum Operation {
     StaticMap(),
     DynamicMap(MapStep),
-    Join(Vec<JoinStep<'a>>),
+    Join(Vec<JoinStep>),
 }
 
 /// The representation of a join, with the data required to serialize it as Rust code
 #[derive(Debug)]
-struct JoinStep<'a> {
+struct JoinStep {
     src_a: String,
     src_b: String,
 
     is_antijoin: bool,
 
-    key: Vec<&'a str>,
-    args: Vec<&'a str>,
+    key: Vec<String>,
+    args: Vec<String>,
 
-    remaining_args_a: Vec<&'a str>,
-    remaining_args_b: Vec<&'a str>,
+    remaining_args_a: Vec<String>,
+    remaining_args_b: Vec<String>,
 
     dest_predicate: String,
-    dest_key: Vec<&'a str>,
-    dest_args: Vec<&'a str>,
+    dest_key: Vec<String>,
+    dest_args: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -36,18 +38,11 @@ struct MapStep {
     dest_args: String,
 }
 
-/// Records the argument information of relation declarations
-#[derive(Debug, Clone)]
-pub struct ArgDecl {
-    pub name: String,
-    pub rust_type: String,
-}
-
 pub fn generate_skeleton_datafrog(decls: &str, text: &str, output: &mut String) {
     // Step 0: parse everything.
     let decls = parser::parse_declarations(decls);
     let program = parser::clean_program(text.to_string());
-    let mut rules = parser::parse(&program);
+    let mut rules = parser::parse(&program).rules;
 
     // Step 1: analyze rules to separate extensional and intensional predicates.
     // These will end up being emitted as datafrog `Relation`s and `Variable`s, respectively.
@@ -203,7 +198,7 @@ pub fn generate_skeleton_datafrog(decls: &str, text: &str, output: &mut String) 
                             .key
                             .iter()
                             .chain(previous_step.args.iter())
-                            .map(|&v| v)
+                            .map(|v| v.to_string())
                             .collect()
                     } else {
                         body[0].args.clone()
@@ -215,7 +210,7 @@ pub fn generate_skeleton_datafrog(decls: &str, text: &str, output: &mut String) 
                     let mut key: Vec<_> = args_b
                         .iter()
                         .filter(|&v| args_a.contains(v))
-                        .map(|&v| v)
+                        .map(|v| v.to_string())
                         .collect();
 
                     // We now need to know which arguments were not used in the key: they will be the
@@ -238,24 +233,24 @@ pub fn generate_skeleton_datafrog(decls: &str, text: &str, output: &mut String) 
                         false
                     };
 
-                    let remaining_args_a: Vec<_> = args_a
+                    let remaining_args_a: Vec<String> = args_a
                         .iter()
                         .filter(|v| !key.contains(v))
                         .filter(|v| is_arg_used_later(v, step_idx + 1))
-                        .map(|&v| v)
+                        .map(|v| v.to_string())
                         .collect();
-                    let remaining_args_b: Vec<_> = args_b
+                    let remaining_args_b: Vec<String> = args_b
                         .iter()
                         .filter(|v| !key.contains(v))
                         .filter(|v| is_arg_used_later(v, step_idx + 1))
-                        .map(|&v| v)
+                        .map(|v| v.to_string())
                         .collect();
 
                     // This step's arguments, which will be used by the next step when computing
                     // its join key.
                     let mut args = Vec::new();
-                    for &arg in remaining_args_a.iter().chain(remaining_args_b.iter()) {
-                        args.push(arg);
+                    for arg in remaining_args_a.iter().chain(remaining_args_b.iter()) {
+                        args.push(arg.clone());
                     }
 
                     // Compute the source predicates:
@@ -654,7 +649,7 @@ fn generate_skeleton_code(
     extensional_predicates: Vec<String>,
     extensional_indices: FxHashMap<String, (&String, String)>,
     intensional_predicates: Vec<String>,
-    intensional_indices: FxHashMap<String, (&Literal<'_>, Vec<&str>, Vec<&str>)>,
+    intensional_indices: FxHashMap<String, (&Literal, Vec<String>, Vec<String>)>,
     predicates_consumed_as_keys: FxHashSet<String>,
     main_relation_candidates: Vec<String>,
     generated_code_static_input: Vec<String>,
@@ -819,7 +814,7 @@ fn generate_skeleton_code(
     for (index_relation, (indexed_literal, key, args)) in intensional_indices.iter() {
         let original_relation = &indexed_literal.predicate;
         let arg_decls = &decls[original_relation];
-        let arg_names: Vec<_> = arg_decls.iter().map(|decl| decl.name.as_ref()).collect();
+        let arg_names: Vec<_> = arg_decls.iter().map(|decl| decl.name.clone()).collect();
 
         // The encoding of these predicates consumed as keys is a tuple
         // wrapping the key-value tuple as a key in another tuple, and a unit value, so we need to
@@ -869,15 +864,15 @@ fn generate_skeleton_code(
 
 fn generate_index_relation<'a>(
     decls: &FxHashMap<String, Vec<ArgDecl>>,
-    literal: &'a Literal<'a>,     // the literal being indexed
-    relation_args: &Vec<&'a str>, // the order and names of the arguments of the index
-    key_args: &Vec<&'a str>,      // the arguments used in the index key
-    value_args: &Vec<&'a str>,    // the arguments used in the index value
+    literal: &'a Literal,     // the literal being indexed
+    relation_args: &Vec<String>, // the order and names of the arguments of the index
+    key_args: &Vec<String>,      // the arguments used in the index key
+    value_args: &Vec<String>,    // the arguments used in the index value
     extensional_predicates: &mut FxHashSet<String>,
     extensional_indices: &mut FxHashMap<String, (&'a String, String)>,
     intensional_predicates: &mut FxHashSet<String>,
     intensional_inputs: &mut FxHashSet<String>,
-    intensional_indices: &mut FxHashMap<String, (&Literal<'a>, Vec<&'a str>, Vec<&'a str>)>,
+    intensional_indices: &mut FxHashMap<String, (&'a Literal, Vec<String>, Vec<String>)>,
 ) -> String {
     let index_relation =
         generate_index_relation_name(&decls, &literal.predicate, &key_args, &relation_args);
@@ -926,9 +921,9 @@ fn record_extensional_index_use<'a>(
     decls: &FxHashMap<String, Vec<ArgDecl>>,
     origin_predicate: &'a String, // the relation over which the index relation maps
     index_predicate: &str,        // the index relation
-    index_args: &Vec<&str>,       // the index arguments name and order
-    key_args: &Vec<&str>,         // the indexed arguments used in the "key"
-    value_args: &Vec<&str>,       // the indexed arguments used in the "value"
+    index_args: &Vec<String>,       // the index arguments name and order
+    key_args: &Vec<String>,         // the indexed arguments used in the "key"
+    value_args: &Vec<String>,       // the indexed arguments used in the "value"
     extensional_predicates: &mut FxHashSet<String>,
     extensional_indices: &mut FxHashMap<String, (&'a String, String)>,
 ) {
@@ -950,13 +945,13 @@ fn record_extensional_index_use<'a>(
 }
 
 fn record_intensional_index_use<'a>(
-    literal: &'a Literal<'a>,
-    key_args: &Vec<&'a str>,
-    value_args: &Vec<&'a str>,
+    literal: &'a Literal,
+    key_args: &Vec<String>,
+    value_args: &Vec<String>,
     index_relation: &str,
     intensional_predicates: &mut FxHashSet<String>,
     intensional_inputs: &mut FxHashSet<String>,
-    intensional_indices: &mut FxHashMap<String, (&Literal<'a>, Vec<&'a str>, Vec<&'a str>)>,
+    intensional_indices: &mut FxHashMap<String, (&'a Literal, Vec<String>, Vec<String>)>,
 ) {
     // When using an index, we're effectively using both `Variables`
     intensional_predicates.insert(index_relation.to_string());
@@ -971,12 +966,12 @@ fn record_intensional_index_use<'a>(
 fn find_arg_decl<'a>(
     global_decls: &'a FxHashMap<String, Vec<ArgDecl>>,
     predicate: &str,
-    args: &Vec<&str>,
+    args: &Vec<String>,
     variable: &str,
 ) -> &'a ArgDecl {
     let idx = args
         .iter()
-        .position(|&arg| arg == variable)
+        .position(|arg| arg == variable)
         .expect("Couldn't find specified `variable` in the specified `args`");
 
     let predicate_arg_decls = &global_decls[predicate];
@@ -991,7 +986,7 @@ fn find_arg_decl<'a>(
 fn canonicalize_arg_name<'a>(
     global_decls: &'a FxHashMap<String, Vec<ArgDecl>>,
     predicate: &str,
-    args: &Vec<&str>,
+    args: &Vec<String>,
     variable: &str,
 ) -> &'a str {
     &find_arg_decl(global_decls, predicate, args, variable).name
@@ -1005,7 +1000,7 @@ fn canonicalize_arg_name<'a>(
 fn canonicalize_arg_type<'a>(
     global_decls: &'a FxHashMap<String, Vec<ArgDecl>>,
     predicate: &str,
-    args: &Vec<&str>,
+    args: &Vec<String>,
     variable: &str,
 ) -> &'a str {
     &find_arg_decl(global_decls, predicate, args, variable).rust_type
@@ -1014,11 +1009,11 @@ fn canonicalize_arg_type<'a>(
 fn generate_index_relation_name(
     decls: &FxHashMap<String, Vec<ArgDecl>>,
     predicate: &str,
-    key: &Vec<&str>,
-    args: &Vec<&str>,
+    key: &Vec<String>,
+    args: &Vec<String>,
 ) -> String {
     let mut index_args = String::new();
-    for &v in key.iter() {
+    for v in key {
         let idx_key = canonicalize_arg_name(&decls, predicate, &args, v);
         index_args.push_str(&idx_key);
     }
@@ -1030,15 +1025,15 @@ fn generate_index_relation_name(
 /// with _ to avoid generating a warning when it's not actually used
 /// to produce the tuple, and potentially "untupled" if there's only one.
 fn join_args_as_tuple(
-    variables: &Vec<&str>,
-    uses_key: &Vec<&str>,
-    uses_args: &Vec<&str>,
+    variables: &Vec<String>,
+    uses_key: &Vec<String>,
+    uses_args: &Vec<String>,
 ) -> String {
     let name_arg = |arg| {
         if uses_key.contains(arg)
-            || uses_key.contains(&arg.to_uppercase().as_ref())
+            || uses_key.contains(&arg.to_uppercase())
             || uses_args.contains(arg)
-            || uses_args.contains(&arg.to_uppercase().as_ref())
+            || uses_args.contains(&arg.to_uppercase())
         {
             arg.to_string().to_lowercase()
         } else {
@@ -1078,3 +1073,4 @@ fn join_types_as_tuple(key_types: Vec<String>, args_types: Vec<String>) -> Strin
         format!("{}, {}", tupled_key_types, tupled_args_types)
     }
 }
+*/

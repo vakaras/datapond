@@ -1,3 +1,5 @@
+fn main() {}
+/*
 use datapond;
 
 fn main() {
@@ -69,3 +71,4 @@ fn main() {
     datapond::generate_skeleton_datafrog(decls, rules, &mut output);
     println!("{}", output);
 }
+*/

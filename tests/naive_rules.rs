@@ -1,3 +1,4 @@
+/*
 use datapond::generate_skeleton_datafrog;
 
 #[test]
@@ -241,3 +242,4 @@ where
         errors.complete()
     };
 }
+*/

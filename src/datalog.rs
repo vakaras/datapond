@@ -9,6 +9,8 @@
 
 use std::fmt;
 use std::ops::Deref;
+use proc_macro2::Ident;
+use quote::ToTokens;
 
 /// Whether a predicate is used only as input, or produces new tuples.
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
@@ -17,18 +19,39 @@ pub enum PredicateKind {
     Intensional,
 }
 
+/// Records the argument information of relation declarations
+#[derive(Clone)]
+pub struct ArgDecl {
+    pub name: Ident,
+    pub rust_type: syn::Type,
+}
+
+impl fmt::Debug for ArgDecl {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.name, self.rust_type.to_token_stream())
+    }
+}
+
+/// Predicate declaration.
+#[derive(Debug, Clone)]
+pub struct Predicate {
+    pub kind: PredicateKind,
+    pub name: Ident,
+    pub parameters: Vec<ArgDecl>,
+}
+
 /// An atom, or relational atom, is a building block used in rules, also known as subgoal,
 /// describing a relation name and the name of its components.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Atom<'a> {
-    pub predicate: String,
-    pub args: Vec<&'a str>,
+pub struct Atom {
+    pub predicate: Ident,
+    pub args: Vec<Ident>,
 }
 
 /// A richer type of relation/atom, which can be negated, and used as premises/hypotheses in rules.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Literal<'a> {
-    pub atom: Atom<'a>,
+pub struct Literal {
+    pub atom: Atom,
     pub is_negated: bool,
     pub kind: PredicateKind,
 }
@@ -36,22 +59,27 @@ pub struct Literal<'a> {
 /// A specific type of Horn clause relating the premises/hypotheses/antecedents/conditions in its body
 /// to the conclusion/consequent in its head.
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Rule<'a> {
-    pub head: Atom<'a>,
-    pub body: Vec<Literal<'a>>,
+pub struct Rule {
+    pub head: Atom,
+    pub body: Vec<Literal>,
 }
 
-impl<'a> Atom<'a> {
-    pub fn new(predicate: &'a str, args: Vec<&'a str>) -> Self {
+pub struct Program {
+    pub predicates: Vec<Predicate>,
+    pub rules: Vec<Rule>,
+}
+
+impl Atom {
+    pub fn new(predicate: Ident, args: Vec<Ident>) -> Self {
         Atom {
-            predicate: predicate.to_string(),
+            predicate: predicate,
             args,
         }
     }
 }
 
-impl fmt::Display for Atom<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Atom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}(", self.predicate)?;
         for (idx, arg) in self.args.iter().enumerate() {
             write!(f, "{}", arg)?;
@@ -63,8 +91,8 @@ impl fmt::Display for Atom<'_> {
     }
 }
 
-impl<'a> Literal<'a> {
-    pub fn new(predicate: &'a str, args: Vec<&'a str>) -> Self {
+impl Literal {
+    pub fn new(predicate: Ident, args: Vec<Ident>) -> Self {
         Self {
             atom: Atom::new(predicate, args),
             is_negated: false,
@@ -72,7 +100,7 @@ impl<'a> Literal<'a> {
         }
     }
 
-    pub fn new_anti(predicate: &'a str, args: Vec<&'a str>) -> Self {
+    pub fn new_anti(predicate: Ident, args: Vec<Ident>) -> Self {
         Self {
             atom: Atom::new(predicate, args),
             is_negated: true,
@@ -81,16 +109,16 @@ impl<'a> Literal<'a> {
     }
 }
 
-impl<'a> Deref for Literal<'a> {
-    type Target = Atom<'a>;
+impl Deref for Literal {
+    type Target = Atom;
 
     fn deref(&self) -> &Self::Target {
         &self.atom
     }
 }
 
-impl fmt::Display for Literal<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_negated {
             write!(f, "!")?;
         }
@@ -98,8 +126,8 @@ impl fmt::Display for Literal<'_> {
     }
 }
 
-impl fmt::Display for Rule<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} :- ", self.head)?;
         for (idx, h) in self.body.iter().enumerate() {
             write!(f, "{}", h)?;
