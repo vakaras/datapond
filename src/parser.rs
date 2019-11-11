@@ -72,11 +72,28 @@ impl Parse for Rule {
         // TODO: Dissallow space between : and -
         input.parse::<Token![:]>()?;
         input.parse::<Token![-]>()?;
-        let body: Punctuated<Ident, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
-        Ok(Rule {
-            head, body: Vec::new()
+        let body: Punctuated<Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
+        input.parse::<Token![.]>()?;
+        Ok(Rule { head, body: body.into_pairs().map(|pair| pair.into_value()).collect() })
+    }
+}
+
+impl Parse for Literal {
+
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let is_negated = input.peek(Token![!]);
+        if is_negated {
+            input.parse::<Token![!]>()?;
+        }
+        // eprintln!("NEXT {}", input.cursor().token_stream());
+        let atom: Atom = input.parse()?;
+        Ok(Literal {
+            atom,
+            is_negated,
+            kind: PredicateKind::Intensional,
         })
     }
+
 }
 
 impl Parse for Program {
@@ -91,6 +108,7 @@ impl Parse for Program {
                 predicates.push(predicate);
             } else {
                 let rule: Rule = input.parse()?;
+                // eprintln!("parse {:?}", rule);
                 rules.push(rule);
             }
         }
@@ -110,7 +128,7 @@ pub fn parse(text: &str) -> Program {
     eprintln!("text: {}", text);
     match syn::parse_str(text) {
         Ok(program) => program,
-        Err(err) => panic!("Error: {:?}", err),
+        Err(err) => panic!("Error: {:?} (at {:?})", err, err.span().start()),
     }
 
 //  let mut rules = Vec::new();
