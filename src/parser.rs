@@ -69,9 +69,16 @@ impl Parse for Rule {
 
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let head = input.parse()?;
-        // TODO: Dissallow space between : and -
-        input.parse::<Token![:]>()?;
-        input.parse::<Token![-]>()?;
+        input.step(|cursor| {
+            let rest = match cursor.token_tree() {
+                Some((proc_macro2::TokenTree::Punct(punct), next)) if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint => next,
+                _ => { return Err(cursor.error(":- expected")) },
+            };
+            match rest.token_tree() {
+                Some((proc_macro2::TokenTree::Punct(punct), next)) if punct.as_char() == '-' => Ok(((), next)),
+                _ => Err(cursor.error(":- expected"))
+            }
+        });
         let body: Punctuated<Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
         input.parse::<Token![.]>()?;
         Ok(Rule { head, body: body.into_pairs().map(|pair| pair.into_value()).collect() })
