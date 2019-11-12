@@ -91,11 +91,11 @@ impl Parse for Rule {
         let head = input.parse()?;
         input.step(|cursor| {
             let rest = match cursor.token_tree() {
-                Some((proc_macro2::TokenTree::Punct(punct), next)) if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint => next,
+                Some((proc_macro2::TokenTree::Punct(ref punct), next)) if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint => next,
                 _ => { return Err(cursor.error(":- expected")) },
             };
             match rest.token_tree() {
-                Some((proc_macro2::TokenTree::Punct(punct), next)) if punct.as_char() == '-' => Ok(((), next)),
+                Some((proc_macro2::TokenTree::Punct(ref punct), next)) if punct.as_char() == '-' => Ok(((), next)),
                 _ => Err(cursor.error(":- expected"))
             }
         })?;
