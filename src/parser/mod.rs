@@ -70,7 +70,7 @@ impl Parse for ast::NamedArg {
         let param: Ident = input.parse()?;
         input.parse::<Token![=]>()?;
         let arg: Ident = input.parse()?;
-        Ok(ast::NamedArg{ param, arg })
+        Ok(ast::NamedArg { param, arg })
     }
 }
 
@@ -118,7 +118,11 @@ impl Parse for ast::Literal {
         }
         let relation = input.parse()?;
         let args = input.parse()?;
-        Ok(ast::Literal { is_negated, relation, args })
+        Ok(ast::Literal {
+            is_negated,
+            relation,
+            args,
+        })
     }
 }
 
@@ -127,8 +131,7 @@ impl Parse for ast::RuleHead {
         let relation = input.parse()?;
         let content;
         parenthesized!(content in input);
-        let punctuated: Punctuated<Ident, Token![,]> =
-            content.parse_terminated(Ident::parse)?;
+        let punctuated: Punctuated<Ident, Token![,]> = content.parse_terminated(Ident::parse)?;
         let args = punctuated
             .into_pairs()
             .map(|pair| pair.into_value())
@@ -158,7 +161,8 @@ impl Parse for ast::Rule {
                 _ => Err(cursor.error(":- expected")),
             }
         })?;
-        let body: Punctuated<ast::Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
+        let body: Punctuated<ast::Literal, Token![,]> =
+            Punctuated::parse_separated_nonempty(input)?;
         // Allow trailing punctuation.
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
@@ -394,34 +398,41 @@ mod tests {
         assert_eq!(program.to_string(), "P(x, y) :- Q(x, y), O(y, x).\n");
     }
 
-        #[test]
-        fn parse_valid_datalog() {
-            let program = parse("
+    #[test]
+    fn parse_valid_datalog() {
+        let program = parse(
+            "
                 irelation E(x: u32, y: u64)
                 relation P(x: u32, y: u64)
                 P(x, y) :- E(x, y).
                 P(x, z) :- E(x, y), P(y, z).
-            ");
-            assert_eq!(program.items.len(), 4);
-            assert_eq!("irelation E(x: u32, y: u64)", program.items[0].to_string());
-            assert_eq!("relation P(x: u32, y: u64)", program.items[1].to_string());
-            assert_eq!("P(x, y) :- E(x, y).", program.items[2].to_string());
-            assert_eq!("P(x, z) :- E(x, y), P(y, z).", program.items[3].to_string());
-        }
+            ",
+        );
+        assert_eq!(program.items.len(), 4);
+        assert_eq!("irelation E(x: u32, y: u64)", program.items[0].to_string());
+        assert_eq!("relation P(x: u32, y: u64)", program.items[1].to_string());
+        assert_eq!("P(x, y) :- E(x, y).", program.items[2].to_string());
+        assert_eq!("P(x, z) :- E(x, y), P(y, z).", program.items[3].to_string());
+    }
 
-        #[test]
-        fn parse_named_args() {
-            let program = parse("
+    #[test]
+    fn parse_named_args() {
+        let program = parse(
+            "
                 relation P(x: u32, y: u64)
                 p(x, y) :- e(.field1 = x, .field2 = y).
-            ");
-            assert_eq!("relation P(x: u32, y: u64)", program.items[0].to_string());
-            assert_eq!("p(x, y) :- e(.field1=x, .field2=y).", program.items[1].to_string());
-        }
+            ",
+        );
+        assert_eq!("relation P(x: u32, y: u64)", program.items[0].to_string());
+        assert_eq!(
+            "p(x, y) :- e(.field1=x, .field2=y).",
+            program.items[1].to_string()
+        );
+    }
 
-        #[test]
-        fn parse_multiline_datalog() {
-            let text = r#"
+    #[test]
+    fn parse_multiline_datalog() {
+        let text = r#"
                 subset(O1, O2, P)    :- outlives(O1, O2, P).
                 subset(O1, O3, P)    :- subset(O1, O2, P), subset(O2, O3, P).
                 subset(O1, O2, Q)    :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
@@ -431,14 +442,15 @@ mod tests {
                 borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
                 errors(L, P)         :- invalidates(L, P), borrow_live_at(L, P)."#;
 
-            let program = parse(text);
-            let serialized = program.items
-                .into_iter()
-                .map(|item| item.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+        let program = parse(text);
+        let serialized = program
+            .items
+            .into_iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
 
-            let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
+        let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
 subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
 subset(O1, O2, Q) :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
 requires(O, L, P) :- borrow_region(O, L, P).
@@ -446,12 +458,12 @@ requires(O2, L, P) :- requires(O1, L, P), subset(O1, O2, P).
 requires(O, L, Q) :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
 borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
 errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
-            assert_eq!(expected, serialized);
-        }
+        assert_eq!(expected, serialized);
+    }
 
-        #[test]
-        fn parse_multiline_datalog_with_comments() {
-            let text = r#"
+    #[test]
+    fn parse_multiline_datalog_with_comments() {
+        let text = r#"
                 // `subset` rules
                 subset(O1, O2, P) :- outlives(O1, O2, P).
 
@@ -484,16 +496,16 @@ errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
                   invalidates(L, P),
                   borrow_live_at(L, P)."#;
 
-            let program = clean_program(text.to_string());
-            let items = parse(&program).items;
+        let program = clean_program(text.to_string());
+        let items = parse(&program).items;
 
-            let serialized = items
-                .into_iter()
-                .map(|rule| rule.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+        let serialized = items
+            .into_iter()
+            .map(|rule| rule.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
 
-            let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
+        let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
 subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
 subset(O1, O2, Q) :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
 requires(O, L, P) :- borrow_region(O, L, P).
@@ -501,6 +513,6 @@ requires(O2, L, P) :- requires(O1, L, P), subset(O1, O2, P).
 requires(O, L, Q) :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
 borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
 errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
-            assert_eq!(expected, serialized);
-        }
+        assert_eq!(expected, serialized);
+    }
 }

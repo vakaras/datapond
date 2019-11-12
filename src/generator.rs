@@ -1,5 +1,5 @@
+use crate::datalog::{ArgDecl, Literal, PredicateKind};
 use crate::parser;
-use crate::datalog::{Literal, PredicateKind, ArgDecl};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::{self, Write};
 

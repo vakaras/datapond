@@ -1,8 +1,8 @@
-use std::fmt;
-use std::ops::Deref;
-use std::collections::HashMap;
 use proc_macro2::Ident;
 use quote::ToTokens;
+use std::collections::HashMap;
+use std::fmt;
+use std::ops::Deref;
 
 /// Whether a predicate is used only as input, or produces new tuples.
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
@@ -36,8 +36,14 @@ pub struct Predicate {
 /// describing a relation name and the name of its components.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Atom {
-    Positional { predicate: Ident, args: Vec<Ident> },
-    Named { predicate: Ident, args: Vec<(Ident, Ident)> },
+    Positional {
+        predicate: Ident,
+        args: Vec<Ident>,
+    },
+    Named {
+        predicate: Ident,
+        args: Vec<(Ident, Ident)>,
+    },
 }
 
 impl Atom {
@@ -55,7 +61,6 @@ pub struct Literal {
     pub atom: Atom,
     pub is_negated: bool,
 }
-
 
 /// A specific type of Horn clause relating the premises/hypotheses/antecedents/conditions in its body
 /// to the conclusion/consequent in its head.
@@ -85,7 +90,7 @@ impl fmt::Display for Atom {
                         write!(f, ", ")?;
                     }
                 }
-            },
+            }
             Atom::Named { predicate, args } => {
                 write!(f, "{}(", predicate)?;
                 for (idx, (name, arg)) in args.iter().enumerate() {

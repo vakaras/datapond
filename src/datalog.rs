@@ -7,10 +7,10 @@
 //! translations of the rules, and setup and maintenance of the indices used during
 //! the joins and their possibly intermediate steps.
 
-use std::fmt;
-use std::ops::Deref;
 use proc_macro2::Ident;
 use quote::ToTokens;
+use std::fmt;
+use std::ops::Deref;
 
 /// Whether a predicate is used only as input, or produces new tuples.
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
