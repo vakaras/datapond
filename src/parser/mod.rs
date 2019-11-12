@@ -1,18 +1,197 @@
 use rustc_hash::FxHashMap;
 
-use crate::datapond::{ArgDecl, Atom, Literal, Rule, Program, Predicate, PredicateKind, ProgramItem};
+use crate::datapond::{
+    ArgDecl, Atom, Literal, Predicate, PredicateKind, Program, ProgramItem, Rule,
+};
+use proc_macro2::{Ident, TokenStream};
+use std::string::ToString;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated;
-use syn::{Token, parenthesized, punctuated::Punctuated};
-use proc_macro2::{TokenStream, Ident};
+use syn::{parenthesized, punctuated::Punctuated, Token};
+
+mod ast;
 
 mod kw {
     syn::custom_keyword!(relation);
     syn::custom_keyword!(irelation);
+    syn::custom_keyword!(orelation);
+}
+
+impl Parse for ast::RelationKind {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(kw::irelation) {
+            input.parse::<kw::irelation>()?;
+            Ok(ast::RelationKind::Input)
+        } else if lookahead.peek(kw::relation) {
+            input.parse::<kw::relation>()?;
+            Ok(ast::RelationKind::Internal)
+        } else if lookahead.peek(kw::orelation) {
+            input.parse::<kw::orelation>()?;
+            Ok(ast::RelationKind::Output)
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
+impl Parse for ast::ParamDecl {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name = input.parse()?;
+        input.parse::<Token![:]>()?;
+        let typ = input.parse()?;
+        Ok(ast::ParamDecl { name, typ })
+    }
+}
+
+impl Parse for ast::RelationDecl {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let kind = input.parse()?;
+        let name = input.parse()?;
+        let content;
+        parenthesized!(content in input);
+        let parsed_content: Punctuated<ast::ParamDecl, Token![,]> =
+            content.parse_terminated(ast::ParamDecl::parse)?;
+        let parameters = parsed_content
+            .into_pairs()
+            .map(|pair| pair.into_value())
+            .collect();
+        Ok(ast::RelationDecl {
+            kind,
+            name,
+            parameters,
+        })
+    }
+}
+
+impl Parse for ast::NamedArg {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        input.parse::<Token![.]>()?;
+        let param: Ident = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let arg: Ident = input.parse()?;
+        Ok(ast::NamedArg{ param, arg })
+    }
+}
+
+impl Parse for ast::PositionalArg {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(Token![_]) {
+            input.parse::<Token![_]>()?;
+            Ok(ast::PositionalArg::Wildcard)
+        } else {
+            let ident = input.parse()?;
+            Ok(ast::PositionalArg::Ident(ident))
+        }
+    }
+}
+
+impl Parse for ast::ArgList {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        parenthesized!(content in input);
+        if content.peek(Token![.]) {
+            let punctuated: Punctuated<ast::NamedArg, Token![,]> =
+                content.parse_terminated(ast::NamedArg::parse)?;
+            let args = punctuated
+                .into_pairs()
+                .map(|pair| pair.into_value())
+                .collect();
+            Ok(ast::ArgList::Named(args))
+        } else {
+            let punctuated: Punctuated<ast::PositionalArg, Token![,]> =
+                content.parse_terminated(ast::PositionalArg::parse)?;
+            let args = punctuated
+                .into_pairs()
+                .map(|pair| pair.into_value())
+                .collect();
+            Ok(ast::ArgList::Positional(args))
+        }
+    }
+}
+
+impl Parse for ast::Literal {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let is_negated = input.peek(Token![!]);
+        if is_negated {
+            input.parse::<Token![!]>()?;
+        }
+        let relation = input.parse()?;
+        let args = input.parse()?;
+        Ok(ast::Literal { is_negated, relation, args })
+    }
+}
+
+impl Parse for ast::RuleHead {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let relation = input.parse()?;
+        let content;
+        parenthesized!(content in input);
+        let punctuated: Punctuated<Ident, Token![,]> =
+            content.parse_terminated(Ident::parse)?;
+        let args = punctuated
+            .into_pairs()
+            .map(|pair| pair.into_value())
+            .collect();
+        Ok(ast::RuleHead { relation, args })
+    }
+}
+
+impl Parse for ast::Rule {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let head = input.parse()?;
+        input.step(|cursor| {
+            let rest = match cursor.token_tree() {
+                Some((proc_macro2::TokenTree::Punct(ref punct), next))
+                    if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint =>
+                {
+                    next
+                }
+                _ => return Err(cursor.error(":- expected")),
+            };
+            match rest.token_tree() {
+                Some((proc_macro2::TokenTree::Punct(ref punct), next))
+                    if punct.as_char() == '-' =>
+                {
+                    Ok(((), next))
+                }
+                _ => Err(cursor.error(":- expected")),
+            }
+        })?;
+        let body: Punctuated<ast::Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
+        // Allow trailing punctuation.
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+        input.parse::<Token![.]>()?;
+        Ok(ast::Rule {
+            head,
+            body: body.into_pairs().map(|pair| pair.into_value()).collect(),
+        })
+    }
+}
+
+impl Parse for ast::Program {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut items = Vec::new();
+        while !input.is_empty() {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(kw::relation)
+                || lookahead.peek(kw::irelation)
+                || lookahead.peek(kw::orelation)
+            {
+                let decl: ast::RelationDecl = input.parse()?;
+                items.push(ast::ProgramItem::RelationDecl(decl));
+            } else {
+                let rule: ast::Rule = input.parse()?;
+                items.push(ast::ProgramItem::Rule(rule));
+            }
+        }
+        Ok(ast::Program { items })
+    }
 }
 
 impl Parse for PredicateKind {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::relation) {
@@ -28,28 +207,31 @@ impl Parse for PredicateKind {
 }
 
 impl Parse for ArgDecl {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name = input.parse()?;
         input.parse::<Token![:]>()?;
         let rust_type = input.parse()?;
-        Ok(ArgDecl {
-            name,
-            rust_type,
-        })
+        Ok(ArgDecl { name, rust_type })
     }
 }
 
 impl Parse for Predicate {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let kind = input.parse()?;
         let name = input.parse()?;
         let content;
         parenthesized!(content in input);
-        let parsed_content: Punctuated<ArgDecl, Token![,]> = content.parse_terminated(ArgDecl::parse)?;
-        let parameters = parsed_content.into_pairs().map(|pair| pair.into_value()).collect();
-        Ok(Predicate { kind, name, parameters })
+        let parsed_content: Punctuated<ArgDecl, Token![,]> =
+            content.parse_terminated(ArgDecl::parse)?;
+        let parameters = parsed_content
+            .into_pairs()
+            .map(|pair| pair.into_value())
+            .collect();
+        Ok(Predicate {
+            kind,
+            name,
+            parameters,
+        })
     }
 }
 
@@ -63,50 +245,68 @@ impl Parse for Kwarg {
         let field: Ident = input.parse()?;
         input.parse::<Token![=]>()?;
         let binding: Ident = input.parse()?;
-        Ok(Kwarg { value: (field, binding) })
+        Ok(Kwarg {
+            value: (field, binding),
+        })
     }
 }
 
 impl Parse for Atom {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let predicate = input.parse()?;
         let content;
         parenthesized!(content in input);
         if content.peek(Token![.]) {
-            let punctuated: Punctuated<Kwarg, Token![,]> = content.parse_terminated(Kwarg::parse)?;
-            let args = punctuated.into_pairs().map(|pair| pair.into_value().value).collect();
+            let punctuated: Punctuated<Kwarg, Token![,]> =
+                content.parse_terminated(Kwarg::parse)?;
+            let args = punctuated
+                .into_pairs()
+                .map(|pair| pair.into_value().value)
+                .collect();
             Ok(Atom::Named { predicate, args })
         } else {
-            let punctuated: Punctuated<Ident, Token![,]> = content.parse_terminated(Ident::parse)?;
-            let args = punctuated.into_pairs().map(|pair| pair.into_value()).collect();
+            let punctuated: Punctuated<Ident, Token![,]> =
+                content.parse_terminated(Ident::parse)?;
+            let args = punctuated
+                .into_pairs()
+                .map(|pair| pair.into_value())
+                .collect();
             Ok(Atom::Positional { predicate, args })
         }
     }
 }
 
 impl Parse for Rule {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let head = input.parse()?;
         input.step(|cursor| {
             let rest = match cursor.token_tree() {
-                Some((proc_macro2::TokenTree::Punct(ref punct), next)) if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint => next,
-                _ => { return Err(cursor.error(":- expected")) },
+                Some((proc_macro2::TokenTree::Punct(ref punct), next))
+                    if punct.as_char() == ':' && punct.spacing() == proc_macro2::Spacing::Joint =>
+                {
+                    next
+                }
+                _ => return Err(cursor.error(":- expected")),
             };
             match rest.token_tree() {
-                Some((proc_macro2::TokenTree::Punct(ref punct), next)) if punct.as_char() == '-' => Ok(((), next)),
-                _ => Err(cursor.error(":- expected"))
+                Some((proc_macro2::TokenTree::Punct(ref punct), next))
+                    if punct.as_char() == '-' =>
+                {
+                    Ok(((), next))
+                }
+                _ => Err(cursor.error(":- expected")),
             }
         })?;
         let body: Punctuated<Literal, Token![,]> = Punctuated::parse_separated_nonempty(input)?;
         input.parse::<Token![.]>()?;
-        Ok(Rule { head, body: body.into_pairs().map(|pair| pair.into_value()).collect() })
+        Ok(Rule {
+            head,
+            body: body.into_pairs().map(|pair| pair.into_value()).collect(),
+        })
     }
 }
 
 impl Parse for Literal {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let is_negated = input.peek(Token![!]);
         if is_negated {
@@ -114,16 +314,11 @@ impl Parse for Literal {
         }
         // eprintln!("NEXT {}", input.cursor().token_stream());
         let atom: Atom = input.parse()?;
-        Ok(Literal {
-            atom,
-            is_negated,
-        })
+        Ok(Literal { atom, is_negated })
     }
-
 }
 
 impl Parse for Program {
-
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut items = Vec::new();
         while !input.is_empty() {
@@ -142,7 +337,7 @@ impl Parse for Program {
 }
 
 /// TODO
-pub fn parse(text: &str) -> Program {
+pub(crate) fn parse(text: &str) -> ast::Program {
     eprintln!("text: {}", text);
     match syn::parse_str(text) {
         Ok(program) => program,
@@ -162,41 +357,88 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_valid_datalog() {
-        let program = parse("relation P(x: u32, y: u64)");
-        let program = parse("p(x, y) :- e(x, y). p(x, z) :- e(x, y), p(y, z).");
-        //assert_eq!("p(x, y) :- e(x, y).", program.rules[0].to_string());
-        //assert_eq!("p(x, z) :- e(x, y), p(y, z).", program.rules[1].to_string());
+    fn parse_relation_decl1() {
+        let program = parse("irelation P ( x: u32   , y: u64)");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "irelation P(x: u32, y: u64)\n");
     }
 
     #[test]
-    fn parse_named_args() {
-        let program = parse("relation P(x: u32, y: u64)");
-        let program = parse("p(x, y) :- e(.field1 = x, .field2 = y).");
-        //assert_eq!("p(x, y) :- e(x, y).", program.rules[0].to_string());
-        //assert_eq!("p(x, z) :- e(x, y), p(y, z).", program.rules[1].to_string());
+    fn parse_relation_decl2() {
+        let program = parse("relation P ( x: u32   , y: u64,)");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "relation P(x: u32, y: u64)\n");
+        let program = parse("orelation P ( )");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "orelation P()\n");
     }
 
     #[test]
-    fn parse_multiline_datalog() {
-        let text = r#"
-            subset(O1, O2, P)    :- outlives(O1, O2, P).
-            subset(O1, O3, P)    :- subset(O1, O2, P), subset(O2, O3, P).
-            subset(O1, O2, Q)    :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
-            requires(O, L, P)    :- borrow_region(O, L, P).
-            requires(O2, L, P)   :- requires(O1, L, P), subset(O1, O2, P).
-            requires(O, L, Q)    :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
-            borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
-            errors(L, P)         :- invalidates(L, P), borrow_live_at(L, P)."#;
+    fn parse_rule1() {
+        let program = parse("P ( x   , y,) :-   Q( x, y), O(y, x) .");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "P(x, y) :- Q(x, y), O(y, x).\n");
+    }
 
-        let program = parse(text);
-        let serialized = program.items
-            .into_iter()
-            .map(|item| item.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+    #[test]
+    fn parse_rule2() {
+        let program = parse("P ( x   , y,) :-   Q( x, y), O(y, _) .");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "P(x, y) :- Q(x, y), O(y, _).\n");
+    }
 
-        let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
+    #[test]
+    fn parse_rule_trailing_comma() {
+        let program = parse("P ( x   , y,) :-   Q( x, y), O(y, x) .");
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(program.to_string(), "P(x, y) :- Q(x, y), O(y, x).\n");
+    }
+
+        #[test]
+        fn parse_valid_datalog() {
+            let program = parse("
+                irelation E(x: u32, y: u64)
+                relation P(x: u32, y: u64)
+                P(x, y) :- E(x, y).
+                P(x, z) :- E(x, y), P(y, z).
+            ");
+            assert_eq!(program.items.len(), 4);
+            assert_eq!("irelation E(x: u32, y: u64)", program.items[0].to_string());
+            assert_eq!("relation P(x: u32, y: u64)", program.items[1].to_string());
+            assert_eq!("P(x, y) :- E(x, y).", program.items[2].to_string());
+            assert_eq!("P(x, z) :- E(x, y), P(y, z).", program.items[3].to_string());
+        }
+
+        #[test]
+        fn parse_named_args() {
+            let program = parse("
+                relation P(x: u32, y: u64)
+                p(x, y) :- e(.field1 = x, .field2 = y).
+            ");
+            assert_eq!("relation P(x: u32, y: u64)", program.items[0].to_string());
+            assert_eq!("p(x, y) :- e(.field1=x, .field2=y).", program.items[1].to_string());
+        }
+
+        #[test]
+        fn parse_multiline_datalog() {
+            let text = r#"
+                subset(O1, O2, P)    :- outlives(O1, O2, P).
+                subset(O1, O3, P)    :- subset(O1, O2, P), subset(O2, O3, P).
+                subset(O1, O2, Q)    :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
+                requires(O, L, P)    :- borrow_region(O, L, P).
+                requires(O2, L, P)   :- requires(O1, L, P), subset(O1, O2, P).
+                requires(O, L, Q)    :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
+                borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
+                errors(L, P)         :- invalidates(L, P), borrow_live_at(L, P)."#;
+
+            let program = parse(text);
+            let serialized = program.items
+                .into_iter()
+                .map(|item| item.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
 subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
 subset(O1, O2, Q) :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
 requires(O, L, P) :- borrow_region(O, L, P).
@@ -204,54 +446,54 @@ requires(O2, L, P) :- requires(O1, L, P), subset(O1, O2, P).
 requires(O, L, Q) :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
 borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
 errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
-        assert_eq!(expected, serialized);
-    }
+            assert_eq!(expected, serialized);
+        }
 
-    #[test]
-    fn parse_multiline_datalog_with_comments() {
-        let text = r#"
-            // `subset` rules
-            subset(O1, O2, P) :- outlives(O1, O2, P).
+        #[test]
+        fn parse_multiline_datalog_with_comments() {
+            let text = r#"
+                // `subset` rules
+                subset(O1, O2, P) :- outlives(O1, O2, P).
 
-            subset(O1, O3, P) :- subset(O1, O2, P),
-                                   subset(O2, O3, P).
-            subset(O1, O2, Q) :-
-              subset(O1, O2, P),
-              cfg_edge(P, Q),
-              region_live_at(O1, Q),
-              region_live_at(O2, Q).
+                subset(O1, O3, P) :- subset(O1, O2, P),
+                                       subset(O2, O3, P).
+                subset(O1, O2, Q) :-
+                  subset(O1, O2, P),
+                  cfg_edge(P, Q),
+                  region_live_at(O1, Q),
+                  region_live_at(O2, Q).
 
-            // `requires` rules
-            requires(O, L, P) :- borrow_region(O, L, P).
+                // `requires` rules
+                requires(O, L, P) :- borrow_region(O, L, P).
 
-            requires(O2, L, P) :-
-              requires(O1, L, P),subset(O1, O2, P).
+                requires(O2, L, P) :-
+                  requires(O1, L, P),subset(O1, O2, P).
 
-            requires(O, L, Q) :-
-              requires(O, L, P),
-                       !killed(L, P),    cfg_edge(P, Q),
-    region_live_at(O, Q).
+                requires(O, L, Q) :-
+                  requires(O, L, P),
+                           !killed(L, P),    cfg_edge(P, Q),
+        region_live_at(O, Q).
 
-            // this one is commented out, nope(N, O, P, E) :- open(O, P, E, N).
+                // this one is commented out, nope(N, O, P, E) :- open(O, P, E, N).
 
-            borrow_live_at(L, P) :-
-              requires(O, L, P),
-              region_live_at(O, P).
+                borrow_live_at(L, P) :-
+                  requires(O, L, P),
+                  region_live_at(O, P).
 
-            errors(L, P) :-
-              invalidates(L, P),
-              borrow_live_at(L, P)."#;
+                errors(L, P) :-
+                  invalidates(L, P),
+                  borrow_live_at(L, P)."#;
 
-        let program = clean_program(text.to_string());
-        let items = parse(&program).items;
+            let program = clean_program(text.to_string());
+            let items = parse(&program).items;
 
-        let serialized = items
-            .into_iter()
-            .map(|rule| rule.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+            let serialized = items
+                .into_iter()
+                .map(|rule| rule.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
 
-        let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
+            let expected = r#"subset(O1, O2, P) :- outlives(O1, O2, P).
 subset(O1, O3, P) :- subset(O1, O2, P), subset(O2, O3, P).
 subset(O1, O2, Q) :- subset(O1, O2, P), cfg_edge(P, Q), region_live_at(O1, Q), region_live_at(O2, Q).
 requires(O, L, P) :- borrow_region(O, L, P).
@@ -259,6 +501,6 @@ requires(O2, L, P) :- requires(O1, L, P), subset(O1, O2, P).
 requires(O, L, Q) :- requires(O, L, P), !killed(L, P), cfg_edge(P, Q), region_live_at(O, Q).
 borrow_live_at(L, P) :- requires(O, L, P), region_live_at(O, P).
 errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
-        assert_eq!(expected, serialized);
-    }
+            assert_eq!(expected, serialized);
+        }
 }
