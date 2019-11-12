@@ -3,7 +3,7 @@ use std::string::ToString;
 use syn::parse::{Parse, ParseStream};
 use syn::{parenthesized, punctuated::Punctuated, Token};
 
-mod ast;
+pub(crate) mod ast;
 
 mod kw {
     syn::custom_keyword!(relation);

@@ -4,75 +4,7 @@ use proc_macro2::Ident;
 use quote::ToTokens;
 use std::fmt;
 
-/// The relation kind regarding IO.
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
-pub(crate) enum RelationKind {
-    /// Instances of this relation can be provided only as input facts.
-    Input,
-    /// Instances of this relation can be used for computation but cannot be output.
-    Internal,
-    /// Instances of this relation can be used for computation and also can be output.
-    Output,
-}
-
-impl fmt::Display for RelationKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RelationKind::Input => write!(f, "irelation"),
-            RelationKind::Internal => write!(f, "relation"),
-            RelationKind::Output => write!(f, "orelation"),
-        }
-    }
-}
-
-/// Parameter information of the relation declaration.
-#[derive(Clone)]
-pub(crate) struct ParamDecl {
-    pub name: Ident,
-    pub typ: syn::Type,
-}
-
-impl fmt::Debug for ParamDecl {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ.to_token_stream())
-    }
-}
-
-impl fmt::Display for ParamDecl {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.typ.to_token_stream())
-    }
-}
-
-/// A declaration of the relation.
-///
-/// ```plain
-/// irelation Input(x: u32, y: u32)
-/// relation Internal(x: u32, y: u32)
-/// orelation Output(x: u32, y: u32)
-/// ```
-#[derive(Debug, Clone)]
-pub(crate) struct RelationDecl {
-    pub kind: RelationKind,
-    pub name: Ident,
-    pub parameters: Vec<ParamDecl>,
-}
-
-impl fmt::Display for RelationDecl {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}(", self.kind, self.name)?;
-        let mut first = true;
-        for parameter in &self.parameters {
-            if first {
-                first = false;
-            } else {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}", parameter)?;
-        }
-        write!(f, ")")
-    }
-}
+pub(crate) use crate::ast::{ParamDecl, RelationDecl, RelationKind, RuleHead};
 
 /// A positional argument `arg2`.
 #[derive(Debug, Clone)]
@@ -135,7 +67,7 @@ impl fmt::Display for ArgList {
     }
 }
 
-/// A richer type of relation/atom, which can be negated, and used as
+/// A richer type of atom, which can be negated, and used as
 /// premises/hypotheses in rules.
 #[derive(Debug, Clone)]
 pub(crate) struct Literal {
@@ -150,29 +82,6 @@ impl fmt::Display for Literal {
             write!(f, "!")?;
         }
         write!(f, "{}({})", self.relation, self.args)
-    }
-}
-
-/// A head of a rule.
-#[derive(Debug, Clone)]
-pub(crate) struct RuleHead {
-    pub relation: Ident,
-    pub args: Vec<Ident>,
-}
-
-impl fmt::Display for RuleHead {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}(", self.relation)?;
-        let mut first = true;
-        for arg in &self.args {
-            if first {
-                first = false;
-            } else {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}", arg)?;
-        }
-        write!(f, ")")
     }
 }
 
