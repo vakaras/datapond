@@ -1,10 +1,9 @@
 //! This file contains the parse AST.
 
 use proc_macro2::Ident;
-use quote::ToTokens;
 use std::fmt;
 
-pub(crate) use crate::ast::{ParamDecl, RelationDecl, RelationKind, RuleHead};
+pub(crate) use crate::ast::{ParamDecl, PredicateDecl, PredicateKind, RuleHead};
 
 /// A positional argument `arg2`.
 #[derive(Debug, Clone)]
@@ -72,7 +71,7 @@ impl fmt::Display for ArgList {
 #[derive(Debug, Clone)]
 pub(crate) struct Literal {
     pub is_negated: bool,
-    pub relation: Ident,
+    pub predicate: Ident,
     pub args: ArgList,
 }
 
@@ -81,11 +80,11 @@ impl fmt::Display for Literal {
         if self.is_negated {
             write!(f, "!")?;
         }
-        write!(f, "{}({})", self.relation, self.args)
+        write!(f, "{}({})", self.predicate, self.args)
     }
 }
 
-/// A rule describing how to compute the relation facts.
+/// A rule describing how to compute facts.
 ///
 /// ```plain
 /// Internal(x, y) :- Input(x, y).
@@ -115,14 +114,14 @@ impl fmt::Display for Rule {
 /// Items present in the program.
 #[derive(Debug, Clone)]
 pub(crate) enum ProgramItem {
-    RelationDecl(RelationDecl),
+    PredicateDecl(PredicateDecl),
     Rule(Rule),
 }
 
 impl fmt::Display for ProgramItem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ProgramItem::RelationDecl(decl) => write!(f, "{}", decl),
+            ProgramItem::PredicateDecl(decl) => write!(f, "{}", decl),
             ProgramItem::Rule(rule) => write!(f, "{}", rule),
         }
     }

@@ -1,12 +1,10 @@
 use crate::ast;
 use crate::parser::ast as past;
-use proc_macro2::{Ident, Span};
+use proc_macro2::Span;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 
-use crate::datapond::{
-    ArgDecl, Atom, Literal, Predicate, PredicateKind, Program, ProgramItem, Rule,
-};
-
+#[derive(Debug)]
 pub struct Error {
     pub msg: String,
     pub span: Span,
@@ -30,14 +28,30 @@ impl Error {
     }
 }
 
-fn check_head<'a>(
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(hint_span) = self.hint_span {
+            write!(
+                f,
+                "{} at {:?} (hint: {:?})",
+                self.msg,
+                self.span.start(),
+                hint_span.start()
+            )
+        } else {
+            write!(f, "{} at {:?}", self.msg, self.span.start())
+        }
+    }
+}
+
+fn check_head(
     head: &past::RuleHead,
-    decls: &'a HashMap<String, ast::RelationDecl>,
-) -> Result<&'a ast::RelationDecl, Error> {
-    let decl = decls.get(&head.relation.to_string()).ok_or_else(|| {
+    decls: &HashMap<String, ast::PredicateDecl>,
+) -> Result<(), Error> {
+    let decl = decls.get(&head.predicate.to_string()).ok_or_else(|| {
         Error::new(
-            format!("Unknown relation {}", head.relation),
-            head.relation.span(),
+            format!("Unknown predicate {}", head.predicate),
+            head.predicate.span(),
         )
     })?;
     if head.args.len() != decl.parameters.len() {
@@ -48,23 +62,23 @@ fn check_head<'a>(
         );
         return Err(Error::with_hint_span(
             msg,
-            head.relation.span(),
+            head.predicate.span(),
             decl.name.span(),
         ));
     }
-    Ok(decl)
+    Ok(())
 }
 
 fn check_body(
     body: Vec<past::Literal>,
-    decls: &HashMap<String, ast::RelationDecl>,
+    decls: &HashMap<String, ast::PredicateDecl>,
 ) -> Result<Vec<ast::Literal>, Error> {
     let mut new_body = Vec::new();
     for literal in body {
-        let decl = decls.get(&literal.relation.to_string()).ok_or_else(|| {
+        let decl = decls.get(&literal.predicate.to_string()).ok_or_else(|| {
             Error::new(
-                format!("Unknown relation {}", literal.relation),
-                literal.relation.span(),
+                format!("Unknown predicate {}", literal.predicate),
+                literal.predicate.span(),
             )
         })?;
         let args = match literal.args {
@@ -77,7 +91,7 @@ fn check_body(
                     );
                     return Err(Error::with_hint_span(
                         msg,
-                        literal.relation.span(),
+                        literal.predicate.span(),
                         decl.name.span(),
                     ));
                 }
@@ -117,8 +131,8 @@ fn check_body(
                 for key in kwargs.keys() {
                     if !used_parameters.contains(key) {
                         return Err(Error::new(
-                            format!("Unknown parameter {} in relation.", key),
-                            literal.relation.span(),
+                            format!("Unknown parameter {} in predicate.", key),
+                            literal.predicate.span(),
                         ));
                     }
                 }
@@ -128,7 +142,7 @@ fn check_body(
         };
         let new_literal = ast::Literal {
             is_negated: literal.is_negated,
-            relation: literal.relation,
+            predicate: literal.predicate,
             args: args,
         };
         new_body.push(new_literal);
@@ -142,18 +156,18 @@ pub(crate) fn typecheck(program: past::Program) -> Result<ast::Program, Error> {
 
     for item in program.items {
         match item {
-            past::ProgramItem::RelationDecl(decl) => {
+            past::ProgramItem::PredicateDecl(decl) => {
                 decls.insert(decl.name.to_string(), decl);
             }
             past::ProgramItem::Rule(past::Rule { head, body }) => {
-                let decl = check_head(&head, &decls);
+                check_head(&head, &decls)?;
                 let body = check_body(body, &decls)?;
                 rules.push(ast::Rule { head, body });
             }
         }
     }
     Ok(ast::Program {
-        relation_decls: decls,
+        decls: decls,
         rules: rules,
     })
 }
@@ -165,8 +179,8 @@ mod tests {
     #[test]
     fn typecheck_valid_datalog() {
         let text = r#"
-              relation P(x: u32, y: u64)
-              irelation Q(x: u32, y: u64)
+              internal P(x: u32, y: u64)
+              input Q(x: u32, y: u64)
 
               P(x, y) :- Q(x, y).
               P(x, y) :- Q(.y=y, .x=x).
@@ -174,7 +188,7 @@ mod tests {
               "#;
         match typecheck(crate::parser::parse(text)) {
             Ok(program) => {
-                assert_eq!(program.relation_decls.len(), 2);
+                assert_eq!(program.decls.len(), 2);
                 assert_eq!(program.rules.len(), 2);
                 assert_eq!(program.rules[0], program.rules[1]);
             }

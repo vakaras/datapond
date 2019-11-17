@@ -1,28 +1,27 @@
 use proc_macro2::Ident;
-use std::string::ToString;
 use syn::parse::{Parse, ParseStream};
 use syn::{parenthesized, punctuated::Punctuated, Token};
 
 pub(crate) mod ast;
 
 mod kw {
-    syn::custom_keyword!(relation);
-    syn::custom_keyword!(irelation);
-    syn::custom_keyword!(orelation);
+    syn::custom_keyword!(internal);
+    syn::custom_keyword!(input);
+    syn::custom_keyword!(output);
 }
 
-impl Parse for ast::RelationKind {
+impl Parse for ast::PredicateKind {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
-        if lookahead.peek(kw::irelation) {
-            input.parse::<kw::irelation>()?;
-            Ok(ast::RelationKind::Input)
-        } else if lookahead.peek(kw::relation) {
-            input.parse::<kw::relation>()?;
-            Ok(ast::RelationKind::Internal)
-        } else if lookahead.peek(kw::orelation) {
-            input.parse::<kw::orelation>()?;
-            Ok(ast::RelationKind::Output)
+        if lookahead.peek(kw::input) {
+            input.parse::<kw::input>()?;
+            Ok(ast::PredicateKind::Input)
+        } else if lookahead.peek(kw::internal) {
+            input.parse::<kw::internal>()?;
+            Ok(ast::PredicateKind::Internal)
+        } else if lookahead.peek(kw::output) {
+            input.parse::<kw::output>()?;
+            Ok(ast::PredicateKind::Output)
         } else {
             Err(lookahead.error())
         }
@@ -38,7 +37,7 @@ impl Parse for ast::ParamDecl {
     }
 }
 
-impl Parse for ast::RelationDecl {
+impl Parse for ast::PredicateDecl {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let kind = input.parse()?;
         let name = input.parse()?;
@@ -50,7 +49,7 @@ impl Parse for ast::RelationDecl {
             .into_pairs()
             .map(|pair| pair.into_value())
             .collect();
-        Ok(ast::RelationDecl {
+        Ok(ast::PredicateDecl {
             kind,
             name,
             parameters,
@@ -110,11 +109,11 @@ impl Parse for ast::Literal {
         if is_negated {
             input.parse::<Token![!]>()?;
         }
-        let relation = input.parse()?;
+        let predicate = input.parse()?;
         let args = input.parse()?;
         Ok(ast::Literal {
             is_negated,
-            relation,
+            predicate,
             args,
         })
     }
@@ -122,7 +121,7 @@ impl Parse for ast::Literal {
 
 impl Parse for ast::RuleHead {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let relation = input.parse()?;
+        let predicate = input.parse()?;
         let content;
         parenthesized!(content in input);
         let punctuated: Punctuated<Ident, Token![,]> = content.parse_terminated(Ident::parse)?;
@@ -130,7 +129,7 @@ impl Parse for ast::RuleHead {
             .into_pairs()
             .map(|pair| pair.into_value())
             .collect();
-        Ok(ast::RuleHead { relation, args })
+        Ok(ast::RuleHead { predicate, args })
     }
 }
 
@@ -174,12 +173,12 @@ impl Parse for ast::Program {
         let mut items = Vec::new();
         while !input.is_empty() {
             let lookahead = input.lookahead1();
-            if lookahead.peek(kw::relation)
-                || lookahead.peek(kw::irelation)
-                || lookahead.peek(kw::orelation)
+            if lookahead.peek(kw::internal)
+                || lookahead.peek(kw::input)
+                || lookahead.peek(kw::output)
             {
-                let decl: ast::RelationDecl = input.parse()?;
-                items.push(ast::ProgramItem::RelationDecl(decl));
+                let decl: ast::PredicateDecl = input.parse()?;
+                items.push(ast::ProgramItem::PredicateDecl(decl));
             } else {
                 let rule: ast::Rule = input.parse()?;
                 items.push(ast::ProgramItem::Rule(rule));
@@ -198,7 +197,7 @@ pub(crate) fn parse(text: &str) -> ast::Program {
     }
 }
 
-pub fn clean_program(text: String) -> String {
+fn clean_program(text: String) -> String {
     text.lines()
         .map(|s| s.trim())
         .filter(|line| !line.starts_with("//"))
@@ -211,19 +210,19 @@ mod tests {
 
     #[test]
     fn parse_relation_decl1() {
-        let program = parse("irelation P ( x: u32   , y: u64)");
+        let program = parse("input P ( x: u32   , y: u64)");
         assert_eq!(program.items.len(), 1);
-        assert_eq!(program.to_string(), "irelation P(x: u32, y: u64)\n");
+        assert_eq!(program.to_string(), "input P(x: u32, y: u64)\n");
     }
 
     #[test]
     fn parse_relation_decl2() {
-        let program = parse("relation P ( x: u32   , y: u64,)");
+        let program = parse("internal P ( x: u32   , y: u64,)");
         assert_eq!(program.items.len(), 1);
-        assert_eq!(program.to_string(), "relation P(x: u32, y: u64)\n");
-        let program = parse("orelation P ( )");
+        assert_eq!(program.to_string(), "internal P(x: u32, y: u64)\n");
+        let program = parse("output P ( )");
         assert_eq!(program.items.len(), 1);
-        assert_eq!(program.to_string(), "orelation P()\n");
+        assert_eq!(program.to_string(), "output P()\n");
     }
 
     #[test]
@@ -251,15 +250,15 @@ mod tests {
     fn parse_valid_datalog() {
         let program = parse(
             "
-                irelation E(x: u32, y: u64)
-                relation P(x: u32, y: u64)
+                input E(x: u32, y: u64)
+                internal P(x: u32, y: u64)
                 P(x, y) :- E(x, y).
                 P(x, z) :- E(x, y), P(y, z).
             ",
         );
         assert_eq!(program.items.len(), 4);
-        assert_eq!("irelation E(x: u32, y: u64)", program.items[0].to_string());
-        assert_eq!("relation P(x: u32, y: u64)", program.items[1].to_string());
+        assert_eq!("input E(x: u32, y: u64)", program.items[0].to_string());
+        assert_eq!("internal P(x: u32, y: u64)", program.items[1].to_string());
         assert_eq!("P(x, y) :- E(x, y).", program.items[2].to_string());
         assert_eq!("P(x, z) :- E(x, y), P(y, z).", program.items[3].to_string());
     }
@@ -268,11 +267,11 @@ mod tests {
     fn parse_named_args() {
         let program = parse(
             "
-                relation P(x: u32, y: u64)
+                internal P(x: u32, y: u64)
                 p(x, y) :- e(.field1 = x, .field2 = y).
             ",
         );
-        assert_eq!("relation P(x: u32, y: u64)", program.items[0].to_string());
+        assert_eq!("internal P(x: u32, y: u64)", program.items[0].to_string());
         assert_eq!(
             "p(x, y) :- e(.field1=x, .field2=y).",
             program.items[1].to_string()

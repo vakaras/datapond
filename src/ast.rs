@@ -5,28 +5,28 @@ use quote::ToTokens;
 use std::collections::HashMap;
 use std::fmt;
 
-/// The relation kind regarding IO.
+/// The predicate kind regarding IO.
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
-pub enum RelationKind {
-    /// Instances of this relation can be provided only as input facts.
+pub enum PredicateKind {
+    /// Instances of this predicate can be provided only as input facts.
     Input,
-    /// Instances of this relation can be used for computation but cannot be output.
+    /// Instances of this predicate can be used for computation but cannot be output.
     Internal,
-    /// Instances of this relation can be used for computation and also can be output.
+    /// Instances of this predicate can be used for computation and also can be output.
     Output,
 }
 
-impl fmt::Display for RelationKind {
+impl fmt::Display for PredicateKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RelationKind::Input => write!(f, "irelation"),
-            RelationKind::Internal => write!(f, "relation"),
-            RelationKind::Output => write!(f, "orelation"),
+            PredicateKind::Input => write!(f, "input"),
+            PredicateKind::Internal => write!(f, "internal"),
+            PredicateKind::Output => write!(f, "output"),
         }
     }
 }
 
-/// Parameter information of the relation declaration.
+/// Parameter information of the predicate declaration.
 #[derive(Clone)]
 pub struct ParamDecl {
     pub name: Ident,
@@ -53,21 +53,21 @@ impl PartialEq for ParamDecl {
 
 impl Eq for ParamDecl {}
 
-/// A declaration of the relation.
+/// A declaration of the predicate.
 ///
 /// ```plain
-/// irelation Input(x: u32, y: u32)
-/// relation Internal(x: u32, y: u32)
-/// orelation Output(x: u32, y: u32)
+/// input Input(x: u32, y: u32)
+/// internal Internal(x: u32, y: u32)
+/// output Output(x: u32, y: u32)
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelationDecl {
-    pub kind: RelationKind,
+pub struct PredicateDecl {
+    pub kind: PredicateKind,
     pub name: Ident,
     pub parameters: Vec<ParamDecl>,
 }
 
-impl fmt::Display for RelationDecl {
+impl fmt::Display for PredicateDecl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}(", self.kind, self.name)?;
         let mut first = true;
@@ -97,20 +97,20 @@ pub enum Arg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Literal {
     pub is_negated: bool,
-    pub relation: Ident,
+    pub predicate: Ident,
     pub args: Vec<Arg>,
 }
 
 /// A head of a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleHead {
-    pub relation: Ident,
+    pub predicate: Ident,
     pub args: Vec<Ident>,
 }
 
 impl fmt::Display for RuleHead {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}(", self.relation)?;
+        write!(f, "{}(", self.predicate)?;
         let mut first = true;
         for arg in &self.args {
             if first {
@@ -124,7 +124,7 @@ impl fmt::Display for RuleHead {
     }
 }
 
-/// A rule describing how to compute the relation facts.
+/// A rule describing how to derive new facts.
 ///
 /// ```plain
 /// Internal(x, y) :- Input(x, y).
@@ -138,6 +138,6 @@ pub struct Rule {
 /// A Datalog program.
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub relation_decls: HashMap<String, RelationDecl>,
+    pub decls: HashMap<String, PredicateDecl>,
     pub rules: Vec<Rule>,
 }
