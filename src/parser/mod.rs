@@ -197,13 +197,6 @@ pub(crate) fn parse(text: &str) -> ast::Program {
     }
 }
 
-fn clean_program(text: String) -> String {
-    text.lines()
-        .map(|s| s.trim())
-        .filter(|line| !line.starts_with("//"))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,8 +337,7 @@ errors(L, P) :- invalidates(L, P), borrow_live_at(L, P)."#;
                   invalidates(L, P),
                   borrow_live_at(L, P)."#;
 
-        let program = clean_program(text.to_string());
-        let items = parse(&program).items;
+        let items = parse(&text).items;
 
         let serialized = items
             .into_iter()

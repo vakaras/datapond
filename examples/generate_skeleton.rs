@@ -1,9 +1,7 @@
-fn main() {}
-/*
 use datapond;
 
 fn main() {
-    let decls = r#"
+    let text = r#"
         .decl borrow_region(O: Origin, L: Loan, P: Point)
         .decl cfg_edge(P: Point, Q: Point)
         .decl killed(L: Loan, P: Point)
@@ -15,9 +13,7 @@ fn main() {
         .decl invalidates(L: Loan, P: Point)
         .decl errors(L: Loan, P: Point)
         .decl equals(O1: Origin, O2: Origin, P: Point)
-    "#;
 
-    let rules = r#"
         // R1
         subset(O1, O2, P) :- outlives(O1, O2, P).
 
@@ -68,7 +64,6 @@ fn main() {
     "#;
 
     let mut output = String::new();
-    datapond::generate_skeleton_datafrog(decls, rules, &mut output);
+    datapond::generate_skeleton_datafrog(text, &mut output);
     println!("{}", output);
 }
-*/
