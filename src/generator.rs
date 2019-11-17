@@ -1024,7 +1024,10 @@ fn canonicalize_arg_name(
     args: &Vec<String>,
     variable: &str,
 ) -> String {
-    find_arg_decl(global_decls, predicate, args, variable).name.to_string().to_lowercase()
+    find_arg_decl(global_decls, predicate, args, variable)
+        .name
+        .to_string()
+        .to_lowercase()
 }
 
 // Find the canonical types of arguments via their usage in the indexed relation.
