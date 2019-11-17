@@ -2,6 +2,7 @@
 
 use proc_macro2::Ident;
 use quote::ToTokens;
+use std::collections::HashMap;
 use std::fmt;
 
 /// The relation kind regarding IO.
@@ -44,6 +45,14 @@ impl fmt::Display for ParamDecl {
     }
 }
 
+impl PartialEq for ParamDecl {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for ParamDecl {}
+
 /// A declaration of the relation.
 ///
 /// ```plain
@@ -51,7 +60,7 @@ impl fmt::Display for ParamDecl {
 /// relation Internal(x: u32, y: u32)
 /// orelation Output(x: u32, y: u32)
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelationDecl {
     pub kind: RelationKind,
     pub name: Ident,
@@ -75,7 +84,7 @@ impl fmt::Display for RelationDecl {
 }
 
 /// An argument.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg {
     /// Identifier `arg`.
     Ident(Ident),
@@ -85,7 +94,7 @@ pub enum Arg {
 
 /// A richer type of atom, which can be negated, and used as
 /// premises/hypotheses in rules.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Literal {
     pub is_negated: bool,
     pub relation: Ident,
@@ -93,7 +102,7 @@ pub struct Literal {
 }
 
 /// A head of a rule.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleHead {
     pub relation: Ident,
     pub args: Vec<Ident>,
@@ -120,7 +129,7 @@ impl fmt::Display for RuleHead {
 /// ```plain
 /// Internal(x, y) :- Input(x, y).
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
     pub head: RuleHead,
     pub body: Vec<Literal>,
@@ -129,6 +138,6 @@ pub struct Rule {
 /// A Datalog program.
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub relation_decls: Vec<RelationDecl>,
+    pub relation_decls: HashMap<String, RelationDecl>,
     pub rules: Vec<Rule>,
 }
