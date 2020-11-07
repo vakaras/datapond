@@ -3,9 +3,13 @@ error: Parameter already bound: y
   |
 9 |         out(x, y) :- inp(.y=y, .y=x).
   |                                 ^
+  |
+  = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: Unknown parameter a in predicate inp. Available parameters are: x,y,z.
   --> $DIR/kwargs.rs:20:27
    |
 20 |         out(x, y) :- inp(.a=y, .y=x).
    |                           ^
+   |
+   = note: this error originates in a macro (in Nightly builds, run with -Z macro-backtrace for more info)
